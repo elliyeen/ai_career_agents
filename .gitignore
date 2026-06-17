@@ -1,0 +1,26 @@
+/target
+
+# Database (runtime state — not versioned)
+data/career.db
+data/*.db
+*.db
+
+# Generated outputs (not versioned — ephemeral per-run artifacts)
+outputs/
+
+# Logs
+logs/
+
+# Environment
+.env
+.env.*
+
+# macOS
+.DS_Store
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+env/
