@@ -378,6 +378,107 @@ impl Db {
 
         Ok(m)
     }
+
+    // ─────────────────────────────────────────────────
+    // Weekly stats (for review report)
+    // ─────────────────────────────────────────────────
+
+    pub fn weekly_stats(&self) -> Result<crate::report::WeeklyStats> {
+        let q = |sql: &str| -> Result<i64> {
+            Ok(self.conn.query_row(sql, [], |r| r.get::<_, i64>(0))?)
+        };
+        Ok(crate::report::WeeklyStats {
+            jobs_discovered:  q("SELECT COUNT(*) FROM jobs")?,
+            jobs_qualified:   q("SELECT COUNT(*) FROM jobs WHERE qualified=1")?,
+            resumes_generated:q("SELECT COUNT(*) FROM resumes")?,
+            resumes_approved: q("SELECT COUNT(*) FROM resumes WHERE approved=1")?,
+            applications:     q("SELECT COUNT(*) FROM applications WHERE status != 'draft'")?,
+            responses:        q("SELECT COUNT(*) FROM applications WHERE status IN ('responded','interview','offer','rejected')")?,
+            interviews:       q("SELECT COUNT(*) FROM applications WHERE status IN ('interview','offer')")?,
+            offers:           q("SELECT COUNT(*) FROM applications WHERE status='offer'")?,
+            rejections:       q("SELECT COUNT(*) FROM applications WHERE status='rejected'")?,
+            pending_approvals:q("SELECT COUNT(*) FROM approval_queue WHERE resolved_at IS NULL")?,
+        })
+    }
+
+    // ─────────────────────────────────────────────────
+    // Application list (for `career-os list`)
+    // ─────────────────────────────────────────────────
+
+    pub fn list_applications(
+        &self,
+        filter_status: Option<&str>,
+    ) -> Result<Vec<ApplicationRow>> {
+        let (sql, use_filter) = if filter_status.is_some() {
+            (
+                "SELECT a.id, a.status, a.created_at, j.title, j.company
+                 FROM applications a JOIN jobs j ON a.job_id = j.id
+                 WHERE a.status = ?1 ORDER BY a.created_at DESC",
+                true,
+            )
+        } else {
+            (
+                "SELECT a.id, a.status, a.created_at, j.title, j.company
+                 FROM applications a JOIN jobs j ON a.job_id = j.id
+                 ORDER BY a.created_at DESC",
+                false,
+            )
+        };
+
+        let mut stmt = self.conn.prepare(sql)?;
+
+        let mapper = |row: &rusqlite::Row| -> rusqlite::Result<ApplicationRow> {
+            Ok(ApplicationRow {
+                id: row.get(0)?,
+                status: row.get(1)?,
+                created_at: row.get(2)?,
+                title: row.get(3)?,
+                company: row.get(4)?,
+            })
+        };
+
+        let rows = if use_filter {
+            stmt.query_map(params![filter_status.unwrap()], mapper)?
+                .collect::<rusqlite::Result<Vec<_>>>()?
+        } else {
+            stmt.query_map([], mapper)?
+                .collect::<rusqlite::Result<Vec<_>>>()?
+        };
+
+        Ok(rows)
+    }
+
+    // ─────────────────────────────────────────────────
+    // Application prefix lookup (for `career-os update`)
+    // ─────────────────────────────────────────────────
+
+    /// Find an application by ID prefix. Returns (full_id, current_status).
+    pub fn application_by_prefix(&self, prefix: &str) -> Result<Option<(String, String)>> {
+        let pattern = format!("{}%", prefix);
+        let result = self.conn.query_row(
+            "SELECT id, status FROM applications WHERE id LIKE ?1 LIMIT 1",
+            params![pattern],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+        );
+        match result {
+            Ok(pair) => Ok(Some(pair)),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(e) => Err(e.into()),
+        }
+    }
+}
+
+// ─────────────────────────────────────────────────────
+// Supporting types
+// ─────────────────────────────────────────────────────
+
+#[derive(Debug)]
+pub struct ApplicationRow {
+    pub id: String,
+    pub status: String,
+    pub created_at: String,
+    pub title: String,
+    pub company: String,
 }
 
 // ─────────────────────────────────────────────────────

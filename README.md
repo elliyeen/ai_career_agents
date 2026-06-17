@@ -26,7 +26,6 @@ Each stage is a discrete agent. Agents communicate through a SQLite database and
 ## Prerequisites
 
 - [Rust](https://rustup.rs/) (2024 edition)
-- Python 3.11+ (for automation scripts)
 - SQLite (bundled via `rusqlite`)
 
 ---
@@ -75,14 +74,19 @@ Also configure:
 
 ```bash
 career-os status                          # Pipeline overview
+career-os intake                          # Interactive: add jobs found today
+career-os intake --file jobs.json         # Batch import jobs from JSON file
 career-os discover                        # Find new jobs (Phase 2)
-career-os qualify                         # Score unqualified jobs
+career-os qualify                         # Score unqualified jobs (interactive)
+career-os qualify --auto                  # Score unqualified jobs (heuristic, no prompts)
+career-os list                            # List all applications
+career-os list --status submitted         # Filter by status
 career-os resume                          # List jobs needing resumes
 career-os resume --job-id <id>            # Generate resume for a job
 career-os outreach --application-id <id> # Draft recruiter messages
 career-os update --id <id> --status <s>  # Update application status
 career-os interview --application-id <id># Generate interview prep
-career-os review                          # Weekly metrics report
+career-os review                          # Weekly metrics report → outputs/reviews/
 career-os approvals                       # List pending human approvals
 career-os approve <queue-id>             # Approve a resume or message
 career-os reject <queue-id>              # Reject a resume or message
@@ -98,24 +102,23 @@ draft → approved → submitted → responded → interview → offer
 
 ---
 
-## Python Scripts
-
-Daily and weekly automation (no web scraping — that is Phase 2):
+## Daily Workflow
 
 ```bash
-# Add jobs found today, then auto-score them
-python scripts/run_daily_research.py
+# Morning: add jobs found today, then score them
+career-os intake
+career-os qualify --auto
 
-# Score unqualified jobs (interactive or auto mode)
-python scripts/score_jobs.py
-python scripts/score_jobs.py --auto
+# Review anything that needs approval
+career-os approvals
+career-os approve <queue-id>
 
-# Update an application status
-python scripts/update_tracker.py --id <app-id> --status submitted
-python scripts/update_tracker.py --list
+# Update statuses as responses arrive
+career-os update --id <app-id> --status responded
+career-os list --status submitted
 
-# Generate weekly review report
-python scripts/weekly_review.py
+# End of week
+career-os review     # saves report to outputs/reviews/YYYY-WNN.md
 ```
 
 ---
@@ -172,12 +175,14 @@ Ten sample job descriptions in `data/test-jobs/` cover the full range of expecte
 cargo test
 ```
 
-32 tests across four suites:
+46 tests across six suites:
 
 - `tests/test_scoring.rs` — 13 tests for the scoring rubric
 - `tests/test_no_fabrication.rs` — 4 tests verifying no skill gaps are papered over
 - `tests/test_tracker.rs` — 11 tests for the application state machine and approval queue
 - `src/db/mod.rs` (unit) — 4 tests for schema integrity and FK constraints
+- `src/intake.rs` (unit) — 9 tests for URL canonicalization, heuristic scoring, title filtering
+- `src/report.rs` (unit) — 5 tests for report generation, weakest stage detection, recommendations
 
 ---
 
@@ -191,6 +196,8 @@ career-os/
 │   ├── models.rs         # Domain types: Job, Resume, Application, Event...
 │   ├── scoring.rs        # Job scoring engine
 │   ├── approval.rs       # Human approval gate
+│   ├── intake.rs         # Job intake: URL canonicalization, dedup, JSON import
+│   ├── report.rs         # Weekly metrics report builder
 │   └── db/
 │       ├── mod.rs        # Database queries (rusqlite)
 │       └── schema.sql    # SQLite schema
@@ -207,11 +214,6 @@ career-os/
 │   └── prd.md
 ├── data/
 │   └── test-jobs/        # 10 sample job descriptions for testing
-├── scripts/
-│   ├── run_daily_research.py
-│   ├── score_jobs.py
-│   ├── update_tracker.py
-│   └── weekly_review.py
 └── outputs/              # Generated resumes, outreach, interview prep, reviews
     ├── resumes/
     ├── outreach/
