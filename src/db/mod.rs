@@ -4,7 +4,10 @@ use std::path::Path;
 use tracing::info;
 use uuid::Uuid;
 
-use crate::models::{Application, ApplicationStatus, ApprovalQueueItem, Event, Job, Metric, Resume};
+use crate::models::{
+    Application, ApplicationStatus, ApprovalQueueItem, Event, Job, Metric, OutreachMessage,
+    Resume, WeeklyStats,
+};
 
 const SCHEMA: &str = include_str!("schema.sql");
 
@@ -383,11 +386,11 @@ impl Db {
     // Weekly stats (for review report)
     // ─────────────────────────────────────────────────
 
-    pub fn weekly_stats(&self) -> Result<crate::report::WeeklyStats> {
+    pub fn weekly_stats(&self) -> Result<WeeklyStats> {
         let q = |sql: &str| -> Result<i64> {
             Ok(self.conn.query_row(sql, [], |r| r.get::<_, i64>(0))?)
         };
-        Ok(crate::report::WeeklyStats {
+        Ok(WeeklyStats {
             jobs_discovered:  q("SELECT COUNT(*) FROM jobs")?,
             jobs_qualified:   q("SELECT COUNT(*) FROM jobs WHERE qualified=1")?,
             resumes_generated:q("SELECT COUNT(*) FROM resumes")?,
@@ -465,6 +468,118 @@ impl Db {
             Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
             Err(e) => Err(e.into()),
         }
+    }
+
+    // ─────────────────────────────────────────────────
+    // Single-record lookups (for agents)
+    // ─────────────────────────────────────────────────
+
+    pub fn get_job(&self, job_id: &str) -> Result<Job> {
+        self.conn
+            .query_row(
+                "SELECT id, title, company, url, source, description, location,
+                 remote, discovered_at, score, qualified
+                 FROM jobs WHERE id = ?1",
+                params![job_id],
+                |row| {
+                    let disc: String = row.get(8)?;
+                    let qualified_int: Option<i32> = row.get(10)?;
+                    Ok(Job {
+                        id: row.get(0)?,
+                        title: row.get(1)?,
+                        company: row.get(2)?,
+                        url: row.get(3)?,
+                        source: row.get(4)?,
+                        description: row.get(5)?,
+                        location: row.get(6)?,
+                        remote: row.get::<_, i32>(7)? != 0,
+                        discovered_at: chrono::DateTime::parse_from_rfc3339(&disc)
+                            .unwrap()
+                            .with_timezone(&chrono::Utc),
+                        score: row.get(9)?,
+                        qualified: qualified_int.map(|q| q != 0),
+                        qualified_at: None,
+                        disqualified_reason: None,
+                    })
+                },
+            )
+            .with_context(|| format!("Job '{}' not found", job_id))
+    }
+
+    pub fn get_application(&self, app_id: &str) -> Result<Application> {
+        self.conn
+            .query_row(
+                "SELECT id, job_id, resume_id, status, submitted_at, response_at, notes, created_at
+                 FROM applications WHERE id = ?1",
+                params![app_id],
+                |row| {
+                    let status_str: String = row.get(3)?;
+                    let created: String = row.get(7)?;
+                    Ok(Application {
+                        id: row.get(0)?,
+                        job_id: row.get(1)?,
+                        resume_id: row.get(2)?,
+                        status: status_str.parse().unwrap_or(ApplicationStatus::Draft),
+                        submitted_at: row
+                            .get::<_, Option<String>>(4)?
+                            .and_then(|s| chrono::DateTime::parse_from_rfc3339(&s).ok())
+                            .map(|dt| dt.with_timezone(&chrono::Utc)),
+                        response_at: row
+                            .get::<_, Option<String>>(5)?
+                            .and_then(|s| chrono::DateTime::parse_from_rfc3339(&s).ok())
+                            .map(|dt| dt.with_timezone(&chrono::Utc)),
+                        notes: row.get(6)?,
+                        created_at: chrono::DateTime::parse_from_rfc3339(&created)
+                            .unwrap()
+                            .with_timezone(&chrono::Utc),
+                    })
+                },
+            )
+            .with_context(|| format!("Application '{}' not found", app_id))
+    }
+
+    // ─────────────────────────────────────────────────
+    // Outreach messages
+    // ─────────────────────────────────────────────────
+
+    pub fn insert_outreach_message(&self, msg: &OutreachMessage) -> Result<()> {
+        self.conn.execute(
+            "INSERT INTO outreach
+             (id, application_id, message_type, content, drafted_at, approved, artifact_path)
+             VALUES (?1,?2,?3,?4,?5,?6,?7)",
+            params![
+                msg.id,
+                msg.application_id,
+                msg.message_type,
+                msg.content,
+                msg.drafted_at.to_rfc3339(),
+                msg.approved as i32,
+                msg.artifact_path,
+            ],
+        )?;
+        Ok(())
+    }
+
+    // ─────────────────────────────────────────────────
+    // Agent execution log
+    // ─────────────────────────────────────────────────
+
+    pub fn log_run(
+        &self,
+        agent: &str,
+        started_at: &str,
+        duration_ms: i64,
+        status: &str,
+        error: Option<&str>,
+        output_path: Option<&str>,
+    ) -> Result<()> {
+        let id = Uuid::new_v4().to_string();
+        self.conn.execute(
+            "INSERT INTO logs (id, agent, started_at, duration_ms, status, error, output_path)
+             VALUES (?1,?2,?3,?4,?5,?6,?7)",
+            params![id, agent, started_at, duration_ms, status, error, output_path],
+        )?;
+        Ok(())
     }
 }
 

@@ -210,6 +210,39 @@ pub struct Metric {
 }
 
 // ─────────────────────────────────────────────────────
+// WeeklyStats
+// ─────────────────────────────────────────────────────
+
+/// Full pipeline snapshot returned by Db::weekly_stats().
+/// Used by the report module and Status command.
+#[derive(Debug, Default)]
+pub struct WeeklyStats {
+    pub jobs_discovered: i64,
+    pub jobs_qualified: i64,
+    pub resumes_generated: i64,
+    pub resumes_approved: i64,
+    pub applications: i64,
+    pub responses: i64,
+    pub interviews: i64,
+    pub offers: i64,
+    pub rejections: i64,
+    pub pending_approvals: i64,
+}
+
+// ─────────────────────────────────────────────────────
+// ApplicationListRow
+// ─────────────────────────────────────────────────────
+
+#[derive(Debug)]
+pub struct ApplicationListRow {
+    pub id: String,
+    pub status: String,
+    pub title: String,
+    pub company: String,
+    pub created_at: String,
+}
+
+// ─────────────────────────────────────────────────────
 // ApprovalQueueItem
 // ─────────────────────────────────────────────────────
 
