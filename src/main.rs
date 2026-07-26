@@ -1,5 +1,5 @@
 use anyhow::Result;
-use career_os::{approval, db::Db, intake, models, report, scoring};
+use career_os::{agents, approval, db::Db, intake, models, report, scoring};
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 use tracing::info;
@@ -63,6 +63,9 @@ enum Commands {
         /// Application ID
         #[arg(long)]
         application_id: Option<String>,
+        /// Message kind: initial | follow_up | thank_you [default: initial]
+        #[arg(long, default_value = "initial")]
+        kind: String,
     },
 
     /// Generate interview preparation for a scheduled interview
@@ -70,6 +73,9 @@ enum Commands {
         /// Application ID
         #[arg(long)]
         application_id: Option<String>,
+        /// Interview round number [default: 1]
+        #[arg(long, default_value_t = 1u32)]
+        round: u32,
     },
 
     /// Generate weekly metrics report and save to outputs/reviews/
@@ -327,8 +333,9 @@ async fn main() -> Result<()> {
             info!("Running resume generation agent");
             match job_id {
                 Some(id) => {
-                    println!("Generating resume for job {} — not yet implemented.", id);
-                    println!("Master resume source: docs/memory/master-resume.md");
+                    let path = agents::resume::run(&db, &id)?;
+                    println!("Resume written → {}", path.display());
+                    println!("Review the file, then run `career-os approvals` to approve.");
                 }
                 None => {
                     let jobs = db.qualified_jobs()?;
@@ -352,26 +359,31 @@ async fn main() -> Result<()> {
         }
 
         // ─── Outreach ─────────────────────────────────────────────────────
-        Commands::Outreach { application_id } => {
-            info!("Running outreach agent");
+        Commands::Outreach { application_id, kind } => {
+            info!("Running outreach agent (kind={})", kind);
             match application_id {
                 Some(id) => {
-                    println!("Generating outreach for application {} — not yet implemented.", id)
+                    let path = agents::outreach::run(&db, &id, &kind)?;
+                    println!("Outreach draft ({kind}) → {}", path.display());
+                    println!("Review the file, then run `career-os approvals` to approve.");
                 }
                 None => {
-                    println!("Outreach agent — specify --application-id or run after resume approval.")
+                    println!("Specify --application-id. List applications: career-os list");
                 }
             }
         }
 
         // ─── Interview ────────────────────────────────────────────────────
-        Commands::Interview { application_id } => {
-            info!("Running interview prep agent");
+        Commands::Interview { application_id, round } => {
+            info!("Running interview prep agent (round={})", round);
             match application_id {
                 Some(id) => {
-                    println!("Generating interview prep for {} — not yet implemented.", id)
+                    let path = agents::interview::run(&db, &id, round)?;
+                    println!("Interview prep (round {round}) → {}", path.display());
                 }
-                None => println!("Interview prep — specify --application-id."),
+                None => {
+                    println!("Specify --application-id. List applications: career-os list");
+                }
             }
         }
 

@@ -1,3 +1,4 @@
+pub mod agents;
 pub mod approval;
 pub mod db;
 pub mod intake;
